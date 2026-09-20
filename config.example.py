@@ -71,7 +71,7 @@ DESCRIPTION_TEMPLATE = (
 # Fields: {course}, {chapter}, {institution}
 EXTRA_DESCRIPTION_TEMPLATE = (
     "This is an extra video for {course}, Chapter {chapter}, "
-    "at {institution}"
+    "at {institution}."
 )
 
 # ============================================================
