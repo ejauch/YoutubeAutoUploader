@@ -1,0 +1,10 @@
+[
+  {
+    "file": "Test_File.mp4",
+    "duration_sec": 2806,
+    "extract_sec": 2,
+    "transcribe_sec": 66,
+    "total_sec": 67,
+    "realtime_factor": 0.023
+  }
+]

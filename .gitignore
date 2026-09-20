@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------
+# Local configuration — paths and names specific to this machine.
+# config.example.py is tracked.
+# ---------------------------------------------------------------
+config.py
+
+# ---------------------------------------------------------------
+# Credentials — never commit
+# ---------------------------------------------------------------
+token.json
+*.credentials.json
+
+# Google Cloud Console downloads these as
+# client_secret_<id>.apps.googleusercontent.com.json — the glob catches
+# both that and the renamed copy the scripts actually read.
+client_secret*.json
+
+# ---------------------------------------------------------------
+# Real course data. The example file is tracked; everything else
+# is a live schedule with local paths in it.
+# ---------------------------------------------------------------
+courses.json
+courses/*
+!courses/courses.example.json
+
+# ---------------------------------------------------------------
+# Runtime state and logs
+# ---------------------------------------------------------------
+upload_queue.json
+logs/
+*.16k.wav
+
+# Editing leftovers — easy to create during a refactor and easy to
+# commit by accident. obs_watcher.py.bak still contains your paths.
+*.bak
+*.tmp
+*.orig
+
+# ---------------------------------------------------------------
+# Large or local-only assets
+# ---------------------------------------------------------------
+models/
+thumbnails/
+
+# ---------------------------------------------------------------
+# launchd agent — contains the local username and absolute paths.
+# The .example copy is tracked.
+# ---------------------------------------------------------------
+*.plist
+!*.plist.example
+
+# ---------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---------------------------------------------------------------
+# macOS
+# ---------------------------------------------------------------
+.DS_Store

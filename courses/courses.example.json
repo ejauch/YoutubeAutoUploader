@@ -1,0 +1,29 @@
+{
+  "semester": "FA26",
+  "courses": [
+    {
+      "name": "MAT 101A",
+      "title": "Introduction to Mathematics",
+      "start_date": "2026-08-15",
+      "end_date": "2026-12-15",
+      "thumbnail": "/absolute/path/to/thumbnails/MAT101Thumbnail.png",
+      "meetings": [
+        { "day": "Monday",    "start": "10:00", "end": "10:50" },
+        { "day": "Wednesday", "start": "10:00", "end": "10:50" },
+        { "day": "Friday",    "start": "10:00", "end": "10:50" }
+      ]
+    },
+    {
+      "name": "MAT 202A",
+      "title": "A Second Course",
+      "start_date": "2026-08-15",
+      "end_date": "2026-12-15",
+      "thumbnail": "/absolute/path/to/thumbnails/MAT202Thumbnail.png",
+      "newest_first": false,
+      "meetings": [
+        { "day": "Tuesday",  "start": "13:00", "end": "14:15" },
+        { "day": "Thursday", "start": "13:00", "end": "14:15" }
+      ]
+    }
+  ]
+}

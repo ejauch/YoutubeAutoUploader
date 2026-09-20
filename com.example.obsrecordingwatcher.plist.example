@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Copy to ~/Library/LaunchAgents/com.<you>.obsrecordingwatcher.plist,
+  replace every /path/to/YoutubeAutoUploader below, and change the Label
+  to match the filename.
+
+  Notes:
+    - Use the absolute path to the Python that has the dependencies
+      installed. Homebrew's python3 is not /usr/bin/python3.
+    - StandardOutPath and StandardErrorPath must differ from each other
+      AND from the logger's own file (logs/obs_watcher.log), or every
+      line lands in the log twice.
+    - launchd does NOT create the logs/ directory. Create it by hand
+      before bootstrapping, or the agent fails silently at startup.
+    - Keep the scripts out of ~/Documents, ~/Desktop, and ~/Downloads:
+      launchd-started processes lack Full Disk Access there and fail
+      with "Operation not permitted".
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.obsrecordingwatcher</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/path/to/YoutubeAutoUploader/obs_watcher.py</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/path/to/YoutubeAutoUploader/logs/obs_watcher_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/path/to/YoutubeAutoUploader/logs/obs_watcher_stderr.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/path/to/YoutubeAutoUploader</string>
+</dict>
+</plist>
