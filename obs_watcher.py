@@ -139,6 +139,22 @@ if NOTIFY_ENABLED and not (PUSHOVER_TOKEN and PUSHOVER_USER):
     log.warning("Pushover credentials not found in keychain; notifications disabled.")
 
 
+# --- Notification de-duplication ----------------------------
+# A queued item is retried every RETRY_INTERVAL_SECONDS, and these alerts
+# are priority 1 — Time Sensitive on iOS, so they bypass quiet hours.
+# Without these guards an overnight failure sends the same alert a
+# hundred times.
+#
+# notified_paths holds per-recording problems (upload failed, no course
+# matched); an entry is cleared once that path uploads successfully.
+notified_paths: set[str] = set()
+
+# A malformed courses.json affects every queued item at once, so this is
+# one flag rather than per-path. Cleared after any successful upload,
+# which proves the file is readable again.
+config_error_notified = False
+
+
 def notify(message: str, title: str = "OBS Watcher", priority: int = 0):
     """
     Send a Pushover notification. Never raises — a notification failure
@@ -625,6 +641,8 @@ def upload_and_categorize(file_path: Path) -> bool | str:
     failure (worth retrying). Failures after the video upload are logged
     but still return True, so the retry loop never re-uploads.
     """
+    global config_error_notified
+
     recorded_at = parse_recording_datetime(file_path)
     if recorded_at is None:
         log.error(f"Could not parse datetime from filename: {file_path.name}")
@@ -633,16 +651,20 @@ def upload_and_categorize(file_path: Path) -> bool | str:
     course, semester, thumbnail = determine_course(recorded_at)
     if semester is None:
         log.error("No 'semester' key in courses.json; cannot proceed.")
-        notify("courses.json is missing its 'semester' key.",
-               title="Config Error", priority=1)
+        if not config_error_notified:
+            config_error_notified = True
+            notify("courses.json is missing its 'semester' key.",
+                   title="Config Error", priority=1)
         return False
     if course is None:
         log.warning(f"No course matched for {recorded_at}; skipping upload.")
-        notify(
-            f"No course scheduled at {recorded_at.strftime('%a %m/%d %I:%M %p')}. "
-            f"Use manual_upload.py if you want it up.",
-            title="Upload Skipped", priority=1,
-        )
+        if str(file_path) not in notified_paths:
+            notified_paths.add(str(file_path))
+            notify(
+                f"No course scheduled at {recorded_at.strftime('%a %m/%d %I:%M %p')}. "
+                f"Use manual_upload.py if you want it up.",
+                title="Upload Skipped", priority=1,
+            )
         return SKIPPED
 
     srt_path = transcribe(file_path, recorded_at, course, semester)
@@ -652,8 +674,10 @@ def upload_and_categorize(file_path: Path) -> bool | str:
         video_id = upload_video(youtube, file_path, recorded_at, course, semester)
     except Exception as e:
         log.error(f"Video upload failed: {e}")
-        notify(f"{course} — upload failed: {e}",
-               title="Upload Failed", priority=1)
+        if str(file_path) not in notified_paths:
+            notified_paths.add(str(file_path))
+            notify(f"{course} — upload failed, will keep retrying: {e}",
+                   title="Upload Failed", priority=1)
         return False
 
     # --- Video is live. Nothing below may trigger a re-upload. ---
@@ -687,6 +711,11 @@ def upload_and_categorize(file_path: Path) -> bool | str:
         f"https://youtu.be/{video_id}",
         title="Upload Complete", priority=-1,
     )
+
+    # A success re-arms both alerts: this path is healthy, and
+    # courses.json was readable enough to get here.
+    notified_paths.discard(str(file_path))
+    config_error_notified = False
     return True
 
 
@@ -711,15 +740,21 @@ def try_upload(file_path: Path):
 
 def retry_loop():
     """Periodically drain the queue whenever a wired connection is available."""
+    first = True
     while True:
-        time.sleep(RETRY_INTERVAL_SECONDS)
+        if not first:
+            time.sleep(RETRY_INTERVAL_SECONDS)
+        first = False
+
         q = queue_load()
         if not q:
             continue
         if not is_wired_connection():
             log.info(f"Queue has {len(q)} item(s) but not on wired connection.")
             continue
+
         log.info(f"Wired detected — processing {len(q)} queued upload(s)")
+        succeeded = 0
         for path_str in list(q):
             path = Path(path_str)
             if not path.exists():
@@ -729,6 +764,15 @@ def retry_loop():
             result = upload_and_categorize(path)
             if result is True or result == SKIPPED:
                 queue_remove(path_str)
+                succeeded += 1
+
+        remaining = len(queue_load())
+        if remaining:
+            log.warning(
+                f"Queue drain finished: {succeeded} done, {remaining} still queued"
+            )
+        else:
+            log.info(f"Queue drain finished: {succeeded} done, queue empty")
 
 
 class RecordingHandler(FileSystemEventHandler):
