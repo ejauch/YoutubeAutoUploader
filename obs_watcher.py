@@ -706,6 +706,7 @@ def upload_and_categorize(file_path: Path) -> bool | str:
     except Exception as e:
         log.error(f"Lecture index update failed (video already uploaded): {e}")
 
+    log.info(f"Upload complete: {course} Lecture {recorded_at.strftime('%m/%d/%y')}")
     notify(
         f"{course} Lecture {recorded_at.strftime('%m/%d/%y')}\n"
         f"https://youtu.be/{video_id}",
