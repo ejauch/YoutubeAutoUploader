@@ -19,7 +19,9 @@ anywhere.
 5. Transcribe with `whisper.cpp`, writing `.srt`/`.txt`/`.vtt` to a transcript
    archive organized by semester and course
 6. Match the recording timestamp against the course schedule to derive the
-   title, description, and playlist
+   title, description, and playlist — unless the date is listed in
+   `no_class_dates`, in which case the recording is held and nothing is
+   uploaded
 7. Upload unlisted, category Education, with the recording date set
 8. Add to the playlist, set the thumbnail, upload the captions
 9. Regenerate that course's index page and push it to the site
@@ -123,6 +125,40 @@ Only `name` is required. `start_date`, `end_date`, and `meetings` are needed
 for schedule matching; `thumbnail` for custom thumbnails; and `title`,
 `page_slug`, and `newest_first` are optional keys the index generator honors.
 
+### Days off
+
+The top-level `no_class_dates` key holds ISO dates on which nothing should be
+uploaded — breaks, holidays, cancelled classes:
+
+```json
+"no_class_dates": ["2026-11-25", "2026-11-26", "2026-11-27"]
+```
+
+It applies to every course. A recording whose timestamp falls on one of these
+dates is **held**: not remuxed, not transcribed, not uploaded, and left exactly
+where OBS wrote it. You get one notification naming the file. Publish it
+yourself with `manual_upload.py`, which ignores this list by design — holding
+is about the *automatic* path only.
+
+The date compared is the one in the OBS filename, which is local time, so a
+recording that runs past midnight is judged by when it started.
+
+Dates must be exactly `YYYY-MM-DD`. Malformed entries are logged as errors and
+skipped while the valid ones still apply, so one typo doesn't silently turn
+every day off back into an upload. A missing key logs a warning, notifies once
+at startup, and is treated as an empty list — schedules written before this
+feature existed still run.
+
+Check the list against the recordings you already have without uploading
+anything:
+
+```bash
+python3 obs_watcher.py --dry-run
+```
+
+It prints each recording as HOLD, UPLOAD, or SKIP with the reason, and sends
+no notifications.
+
 Archived semesters stay in `courses/` and can be regenerated later with
 `--semester`. They do not need the scheduling keys if you only want their
 index pages.
@@ -175,6 +211,9 @@ After editing a script, restart the process (`pkill -f obs_watcher.py`;
 Normal operation is hands-off. The manual paths:
 
 ```bash
+# Show which existing recordings would be held as days off
+python3 obs_watcher.py --dry-run
+
 # Upload a recording that matched no scheduled class
 python3 manual_upload.py
 python3 manual_upload.py --all          # list candidates, upload nothing

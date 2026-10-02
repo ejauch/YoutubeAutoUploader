@@ -12,11 +12,20 @@ Pipeline:
      and the course schedule in courses.json
   7. Add to playlist, set thumbnail, upload captions, refresh the index
 
+Recordings made on a date listed in courses.json's "no_class_dates" are
+held: left in place, never uploaded, and reported once by notification.
+Publish them by hand with manual_upload.py if you want them up.
+
 Machine-specific settings live in config.py — copy config.example.py to
 config.py and edit it before first run.
 
 Uploads are only attempted on a wired connection. On Wi-Fi the file is
 queued and retried every RETRY_INTERVAL_SECONDS.
+
+Usage:
+    python3 obs_watcher.py            # run the watcher (what launchd does)
+    python3 obs_watcher.py --dry-run  # report which existing recordings
+                                      # would be held; uploads nothing
 """
 
 import re
@@ -24,10 +33,11 @@ import sys
 import time
 import json
 import logging
+import argparse
 import subprocess
 import threading
 from typing import Any
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from watchdog.observers import Observer
@@ -85,9 +95,15 @@ QUEUE_FILE = SCRIPT_DIR / "upload_queue.json"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "obs_watcher.log"
 
-# Sentinel: matched no scheduled course. Treated like success by the
-# queue so an unmatched recording isn't retried forever.
+# Sentinel: matched no scheduled course, or fell on a no-class date.
+# Both are deliberate, so the queue treats this like success and the
+# recording isn't retried forever.
 SKIPPED = "skipped"
+
+# Top-level key in courses.json listing the dates with no class.
+# sync_teaching_focus.py reads the same key, so the name and the ISO
+# YYYY-MM-DD format are a shared contract — don't rename or reformat.
+NO_CLASS_DATES_KEY = "no_class_dates"
 
 # --- YouTube constants; identical for every install ----------
 SCOPES = [
@@ -153,6 +169,12 @@ notified_paths: set[str] = set()
 # one flag rather than per-path. Cleared after any successful upload,
 # which proves the file is readable again.
 config_error_notified = False
+
+# courses.json is re-read on every lookup so edits take effect without a
+# restart — which also means a missing or malformed no_class_dates key
+# would otherwise be reported on every single recording.
+no_class_missing_notified = False
+no_class_invalid_notified = False
 
 
 def notify(message: str, title: str = "OBS Watcher", priority: int = 0):
@@ -232,6 +254,118 @@ def is_wired_connection() -> bool:
 def load_courses() -> dict[str, Any]:
     with open(COURSES_FILE) as f:
         return json.load(f)
+
+
+def parse_no_class_dates(data: dict[str, Any],
+                         notify_problems: bool = True) -> set[date]:
+    """
+    Extract and validate courses.json's no_class_dates list.
+
+    Returns a set of datetime.date. The key is optional: a missing one
+    logs a warning, notifies once, and yields an empty set rather than
+    raising, so a schedule written before this feature existed still runs.
+
+    Malformed entries are logged at ERROR and skipped, but the valid
+    remainder is still honored — one bad string shouldn't quietly turn
+    every day off back into an upload. Dates must be exactly YYYY-MM-DD;
+    "2026-1-5" is rejected, because sync_teaching_focus.py reads the same
+    key and the format is a shared contract.
+
+    notify_problems=False suppresses the Pushover sends, for dry runs.
+    """
+    global no_class_missing_notified, no_class_invalid_notified
+
+    raw = data.get(NO_CLASS_DATES_KEY)
+
+    if raw is None:
+        if not no_class_missing_notified:
+            no_class_missing_notified = True
+            log.warning(
+                f"courses.json has no '{NO_CLASS_DATES_KEY}' key — no "
+                f"recordings will be held. Add it as a list of ISO dates, "
+                f'e.g. "{NO_CLASS_DATES_KEY}": ["2026-11-26"].'
+            )
+            if notify_problems:
+                notify(
+                    f"courses.json has no '{NO_CLASS_DATES_KEY}' key; "
+                    f"day-off holds are inactive.",
+                    title="Config Warning", priority=0,
+                )
+        return set()
+
+    if not isinstance(raw, list):
+        log.error(
+            f"courses.json '{NO_CLASS_DATES_KEY}' must be a list of "
+            f"YYYY-MM-DD strings, got {type(raw).__name__}. Treating it as "
+            f"empty — no recordings will be held."
+        )
+        if notify_problems and not no_class_invalid_notified:
+            no_class_invalid_notified = True
+            notify(
+                f"'{NO_CLASS_DATES_KEY}' in courses.json is not a list; "
+                f"day-off holds are inactive.",
+                title="Config Error", priority=1,
+            )
+        return set()
+
+    valid: set[date] = set()
+    invalid: list[str] = []
+
+    for entry in raw:
+        if not isinstance(entry, str):
+            invalid.append(repr(entry))
+            continue
+        try:
+            parsed = datetime.strptime(entry, "%Y-%m-%d").date()
+        except ValueError:
+            invalid.append(entry)
+            continue
+        # strptime accepts "2026-1-5"; the round trip rejects it, so what
+        # we store always matches what the other consumer expects.
+        if parsed.isoformat() != entry:
+            invalid.append(entry)
+            continue
+        valid.add(parsed)
+
+    if invalid:
+        log.error(
+            f"Ignoring {len(invalid)} malformed "
+            f"{'entry' if len(invalid) == 1 else 'entries'} in "
+            f"'{NO_CLASS_DATES_KEY}' (expected YYYY-MM-DD): "
+            f"{', '.join(invalid)}"
+        )
+        if notify_problems and not no_class_invalid_notified:
+            no_class_invalid_notified = True
+            notify(
+                f"{len(invalid)} malformed date(s) in "
+                f"'{NO_CLASS_DATES_KEY}': {', '.join(invalid[:3])}"
+                f"{' and more' if len(invalid) > 3 else ''}",
+                title="Config Error", priority=1,
+            )
+
+    return valid
+
+
+def is_day_off(recorded_at: datetime, notify_problems: bool = True) -> bool:
+    """
+    True if this recording falls on a no-class date.
+
+    recorded_at comes from the OBS filename, which OBS writes in local
+    time, so .date() is already the local calendar date — no timezone
+    conversion is wanted or applied.
+
+    Fails open: if courses.json can't be read this returns False and the
+    recording follows the normal path, where the same unreadable file
+    produces a louder error.
+    """
+    try:
+        data = load_courses()
+    except Exception as e:
+        log.error(f"Could not read courses.json for the day-off check: {e}")
+        return False
+    return recorded_at.date() in parse_no_class_dates(
+        data, notify_problems=notify_problems
+    )
 
 
 def determine_course(recorded_at: datetime) -> tuple[str | None, str | None, str | None]:
@@ -637,9 +771,10 @@ def upload_video(youtube, file_path: Path, recorded_at: datetime,
 def upload_and_categorize(file_path: Path) -> bool | str:
     """
     Full pipeline for one .mp4. Returns True if the video reached YouTube,
-    SKIPPED if no course matched (deliberate, don't retry), or False on
-    failure (worth retrying). Failures after the video upload are logged
-    but still return True, so the retry loop never re-uploads.
+    SKIPPED if no course matched or the date is a no-class date (both
+    deliberate, don't retry), or False on failure (worth retrying).
+    Failures after the video upload are logged but still return True, so
+    the retry loop never re-uploads.
     """
     global config_error_notified
 
@@ -647,6 +782,21 @@ def upload_and_categorize(file_path: Path) -> bool | str:
     if recorded_at is None:
         log.error(f"Could not parse datetime from filename: {file_path.name}")
         return False
+
+    # The watcher normally catches this before any work happens. This
+    # second check covers a recording queued before its date was added to
+    # no_class_dates. manual_upload.py calls upload_video directly and is
+    # deliberately unaffected.
+    if is_day_off(recorded_at):
+        log.info(
+            f"No class on {recorded_at.date().isoformat()} — holding "
+            f"{file_path.name} instead of uploading."
+        )
+        if str(file_path) not in notified_paths:
+            notified_paths.add(str(file_path))
+            notify(f"Day off recording held: {file_path.name}",
+                   title="Recording Held", priority=0)
+        return SKIPPED
 
     course, semester, thumbnail = determine_course(recorded_at)
     if semester is None:
@@ -788,7 +938,9 @@ class RecordingHandler(FileSystemEventHandler):
         if path.suffix.lower() != ".mkv":
             return
 
-        # macOS FSEvents can deliver the same creation event more than once.
+        # macOS FSEvents can deliver the same creation event more than
+        # once. Everything below this guard — including the day-off
+        # notification — therefore runs at most once per path.
         with processing_lock:
             if str(path) in processing_files:
                 log.info(f"Already processing, ignoring duplicate event: {path}")
@@ -796,6 +948,21 @@ class RecordingHandler(FileSystemEventHandler):
             processing_files.add(str(path))
 
         log.info(f"New recording detected: {path}")
+
+        # Day-off check first: no cancel window, no remux, no transcription.
+        # The .mkv stays exactly where OBS left it, for manual_upload.py.
+        recorded_at = parse_recording_datetime(path)
+        if recorded_at is None:
+            log.warning(f"No timestamp in {path.name}; skipping day-off check.")
+        elif is_day_off(recorded_at):
+            log.info(
+                f"No class on {recorded_at.date().isoformat()} — holding "
+                f"{path.name}. Use manual_upload.py to publish it."
+            )
+            notify(f"Day off recording held: {path.name}",
+                   title="Recording Held", priority=0)
+            return
+
         wait_for_file_stable(path)
 
         if not wait_delay_with_cancel(path, UPLOAD_DELAY_MINUTES):
@@ -807,9 +974,105 @@ class RecordingHandler(FileSystemEventHandler):
         try_upload(mp4_path)
 
 
+# ============================================================
+# DRY RUN
+# ============================================================
+def dry_run() -> int:
+    """
+    Report what the day-off check would do with the recordings already in
+    WATCH_FOLDER. Uploads nothing, moves nothing, notifies nothing.
+    """
+    try:
+        data = load_courses()
+    except Exception as e:
+        print(f"Could not read {COURSES_FILE}: {e}")
+        return 1
+
+    no_class = parse_no_class_dates(data, notify_problems=False)
+
+    print(f"\ncourses.json : {COURSES_FILE}")
+    print(f"semester     : {data.get('semester', '(missing)')}")
+    if no_class:
+        print(f"no-class days: {len(no_class)}")
+        for d in sorted(no_class):
+            print(f"               {d.isoformat()}  {d.strftime('%a')}")
+    else:
+        print("no-class days: none loaded")
+
+    # Prefer the .mp4 when both exist, matching manual_upload.py.
+    candidates: list[tuple[Path, datetime]] = []
+    unparsed: list[Path] = []
+    for path in sorted(WATCH_FOLDER.iterdir()):
+        if path.suffix.lower() not in (".mkv", ".mp4"):
+            continue
+        if path.suffix.lower() == ".mkv" and path.with_suffix(".mp4").exists():
+            continue
+        recorded_at = parse_recording_datetime(path)
+        if recorded_at is None:
+            unparsed.append(path)
+            continue
+        candidates.append((path, recorded_at))
+
+    print(f"\nRecordings in {WATCH_FOLDER}: {len(candidates)}\n")
+    if not candidates:
+        print("  (none with a parseable timestamp)")
+
+    held = would_upload = unmatched = 0
+    for path, recorded_at in candidates:
+        if recorded_at.date() in no_class:
+            verdict, detail = "HOLD  ", "no class this date"
+            held += 1
+        else:
+            try:
+                course, _, _ = determine_course(recorded_at)
+            except Exception as e:
+                course, detail = None, f"schedule lookup failed: {e}"
+            if course:
+                verdict, detail = "UPLOAD", course
+                would_upload += 1
+            else:
+                verdict = "SKIP  "
+                detail = "no course matches this time"
+                unmatched += 1
+        print(f"  {verdict}  {recorded_at.strftime('%a %Y-%m-%d %H:%M')}  "
+              f"{path.name}  ({detail})")
+
+    if unparsed:
+        print(f"\n  No timestamp in the filename ({len(unparsed)}):")
+        for path in unparsed:
+            print(f"    {path.name}")
+
+    print(f"\n{held} held, {would_upload} would upload, {unmatched} unmatched.")
+    print("Nothing was uploaded, moved, or notified.\n")
+    return 0
+
+
 def main():
+    ap = argparse.ArgumentParser(
+        description="Watch the OBS recordings folder and upload lectures."
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true",
+        help="Report which existing recordings would be held as days off "
+             "and which would upload, then exit. Uploads and notifies nothing.",
+    )
+    args = ap.parse_args()
+
+    if args.dry_run:
+        return dry_run()
+
     log.info("Starting OBS watcher")
     TRANSCRIPT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # Validate the schedule once at startup so a missing or malformed
+    # no_class_dates key is reported now rather than on the first
+    # recording. Deliberately not fatal: launchd has KeepAlive set, so
+    # exiting here would produce a restart loop.
+    try:
+        no_class = parse_no_class_dates(load_courses())
+        log.info(f"Loaded {len(no_class)} no-class date(s) from courses.json")
+    except Exception as e:
+        log.error(f"Could not read courses.json at startup: {e}")
 
     observer = Observer()
     observer.schedule(RecordingHandler(), str(WATCH_FOLDER), recursive=False)
@@ -823,7 +1086,8 @@ def main():
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
