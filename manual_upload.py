@@ -6,6 +6,8 @@ Scans WATCH_FOLDER for recordings with no transcript on disk, lets you pick
 one, pick a course from courses.json, and give a chapter number. Titles them
 "<COURSE> Extra Video for Chapter <N>", then runs the same transcribe ->
 upload -> playlist -> thumbnail -> captions path the watcher uses.
+If course is in normal schedule from courses.json, will match watcher title
+structure.
 
 Usage:
     python3 manual_upload.py             # interactive
@@ -64,13 +66,21 @@ def find_candidates() -> list[tuple[Path, datetime]]:
 # ============================================================
 # PROMPTS
 # ============================================================
-def choose(prompt: str, options: list[str]) -> int | None:
+def choose(prompt: str, options: list[str], default: int | None = None) -> int | None:
     """Print a numbered menu and return the chosen index, or None to abort."""
     for i, label in enumerate(options, 1):
-        print(f"  {i}. {label}")
+        marker = " <- detected" if default is not None and i - 1 == default else ""
+        print(f"  {i}. {label}{marker}")
+    hint = f"1-{len(options)}"
+    if default is not None:
+        hint += f", Enter for {default + 1}"
     while True:
-        raw = input(f"{prompt} (1-{len(options)}, or 'q' to quit): ").strip()
-        if raw.lower() in ("q", "quit", ""):
+        raw = input(f"{prompt} ({hint}, or 'q' to quit): ").strip()
+        if raw.lower() in ("q", "quit"):
+            return None
+        if raw == "":
+            if default is not None:
+                return default
             return None
         if raw.isdigit() and 1 <= int(raw) <= len(options):
             return int(raw) - 1
@@ -129,21 +139,27 @@ def main():
     if not courses:
         sys.exit("No courses defined in courses.json.")
 
+    # Pre-select whichever course this recording's timestamp falls inside.
+    matched_course, _, _ = ow.determine_course(recorded_at)
+    names = [c["name"] for c in courses]
+    detected = names.index(matched_course) if matched_course in names else None
+
     print(f"\nCourses for {semester}:\n")
-    cidx = choose("Which course?", [c["name"] for c in courses])
+    cidx = choose("Which course?", names, default=detected)
     if cidx is None:
         return
+
     course_entry = courses[cidx]
     course = course_entry["name"]
     thumbnail = course_entry.get("thumbnail")
 
-    # --- Does this recording sit in a scheduled meeting for this course? ---
-    matched_course, _, _ = ow.determine_course(recorded_at)
-    is_scheduled = (matched_course == course)
+    # True only if the detected course is the one actually chosen — picking
+    # a different course means this isn't that course's scheduled meeting.
+    is_scheduled = (course == matched_course)
 
     if is_scheduled:
-        default_suffix = f"Lecture {recorded_at.strftime('%m/%d/%y')}"
         chapter = ""
+        default_suffix = f"Lecture {recorded_at.strftime('%m/%d/%y')}"
         print(f"\nThis recording matches a scheduled {course} meeting.")
     else:
         chapter = input(
