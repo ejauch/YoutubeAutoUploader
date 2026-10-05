@@ -137,20 +137,33 @@ def main():
     course = course_entry["name"]
     thumbnail = course_entry.get("thumbnail")
 
-    # --- Chapter (optional if you're supplying your own title) ---
-    chapter = input("\nChapter number (blank to write your own title): ").strip()
+    # --- Does this recording sit in a scheduled meeting for this course? ---
+    matched_course, _, _ = ow.determine_course(recorded_at)
+    is_scheduled = (matched_course == course)
 
-    if chapter:
-        default_suffix = f"Extra Video for Chapter {chapter}"
+    if is_scheduled:
+        default_suffix = f"Lecture {recorded_at.strftime('%m/%d/%y')}"
+        chapter = ""
+        print(f"\nThis recording matches a scheduled {course} meeting.")
     else:
-        default_suffix = "Extra Video"
+        chapter = input(
+            "\nChapter number (blank to write your own title): "
+        ).strip()
+        default_suffix = (f"Extra Video for Chapter {chapter}" if chapter
+                          else "Extra Video")
 
     raw = input(f"Title: {course} [{default_suffix}]: ").strip()
     suffix = raw or default_suffix
 
     # --- Derived metadata ---
     title = f"{course} {suffix}"
-    if chapter and suffix == default_suffix:
+    if is_scheduled and suffix == default_suffix:
+        description = ow.DESCRIPTION_TEMPLATE.format(
+            course=course,
+            date_short=recorded_at.strftime("%m/%d/%y"),
+            institution=INSTITUTION,
+        )
+    elif chapter and suffix == default_suffix:
         description = EXTRA_DESCRIPTION_TEMPLATE.format(
             course=course, chapter=chapter, institution=INSTITUTION
         )
