@@ -126,3 +126,8 @@ LOWERCASE_PATHS = False
 # counts down so lecture 1 stays the first meeting of the semester.
 # Per-course override: "newest_first" in courses.json.
 NEWEST_FIRST = True
+
+# Optional: location of courses.json. Defaults to courses.json beside
+# obs_watcher.py, with archived semesters in a "courses" folder next to it.
+# Set this to share one course file with other scripts.
+# COURSES_FILE = "~/scripts/CourseData/courses.json"

@@ -74,7 +74,7 @@ except ImportError as e:
 # there is exactly one source of truth.
 
 # Archived per-semester course files: courses/courses-SP26.json etc.
-COURSES_DIR = SCRIPT_DIR / "courses"
+COURSES_DIR = ow.COURSES_FILE.parent / "courses"
 
 log = logging.getLogger("lecture_index")
 

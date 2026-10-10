@@ -87,7 +87,13 @@ except ImportError as e:
     )
 
 # --- Derived from SCRIPT_DIR; identical for every install ----
-COURSES_FILE = SCRIPT_DIR / "courses.json"
+# Optional override in config.py; default is courses.json beside this script.
+try:
+    from config import COURSES_FILE as _courses_override
+except ImportError:
+    _courses_override = None
+COURSES_FILE = (Path(_courses_override).expanduser() if _courses_override
+                else SCRIPT_DIR / "courses.json")
 CLIENT_SECRETS_FILE = SCRIPT_DIR / "client_secrets.json"
 TOKEN_FILE = SCRIPT_DIR / "token.json"
 QUEUE_FILE = SCRIPT_DIR / "upload_queue.json"
