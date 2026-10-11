@@ -24,7 +24,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
+        <string>/path/to/YoutubeAutoUploader/.venv/bin/python</string>
         <string>/path/to/YoutubeAutoUploader/obs_watcher.py</string>
     </array>
 

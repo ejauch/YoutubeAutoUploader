@@ -106,7 +106,7 @@ PUSHOVER_USER_SERVICE = "pushover_user"
 # Local checkout of the static site. Pages land at
 #   SITE_REPO / SITE_ASSETS / SITE_SUBDIR / <semester> / <slug> / index.html
 # and serve from https://<domain>/<SITE_SUBDIR>/<semester>/<slug>/
-SITE_REPO = Path.home() / "Documents" / "GitHub" / "your-site"
+SITE_REPO = Path.home() / "GitHub" / "your-site"
 
 # Cloudflare Pages serves assets.directory as the site root, so everything
 # is written inside it and the served URL drops the prefix. Keep this in

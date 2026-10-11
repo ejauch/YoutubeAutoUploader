@@ -1,0 +1,10 @@
+[project]
+name = "youtubeautouploader"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "google-api-python-client==2.197.0",
+    "google-auth==2.53.0",
+    "google-auth-oauthlib==1.4.0",
+    "watchdog==6.0.0",
+]

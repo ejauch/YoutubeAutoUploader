@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/erich/scripts/YoutubeAutoUploader/.venv/bin/python
 """
 Verify Pushover notifications for the OBS watcher pipeline.
 
