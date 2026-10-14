@@ -125,15 +125,21 @@ CATEGORY_ID_EDUCATION = "27"
 log = logging.getLogger("obs_watcher")
 log.setLevel(logging.INFO)
 log.propagate = False
-log.handlers.clear()
 
-_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-_fh = RotatingFileHandler(LOG_FILE, maxBytes=5_000_000, backupCount=3)
-_fh.setFormatter(_formatter)
-_sh = logging.StreamHandler(sys.stdout)
-_sh.setFormatter(_formatter)
-log.addHandler(_fh)
-log.addHandler(_sh)
+# Idempotent on purpose. generate_lecture_index imports obs_watcher, and
+# because the watcher runs as __main__ that import loads this file a
+# SECOND time as a separate module object. Unguarded, the re-execution
+# called handlers.clear() on the live logger and attached a fresh
+# RotatingFileHandler to the same file mid-run — two open descriptors on
+# obs_watcher.log, and log lines vanishing from runs that completed.
+if not log.handlers:
+    _formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    _fh = RotatingFileHandler(LOG_FILE, maxBytes=5_000_000, backupCount=3)
+    _fh.setFormatter(_formatter)
+    _sh = logging.StreamHandler(sys.stdout)
+    _sh.setFormatter(_formatter)
+    log.addHandler(_fh)
+    log.addHandler(_sh)
 
 # ============================================================
 # PUSH NOTIFICATIONS (Pushover)

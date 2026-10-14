@@ -76,7 +76,7 @@ except ImportError as e:
 # Archived per-semester course files: courses/courses-SP26.json etc.
 COURSES_DIR = ow.COURSES_FILE.parent / "courses"
 
-log = logging.getLogger("lecture_index")
+log = logging.getLogger("obs_watcher.lecture_index")
 
 
 

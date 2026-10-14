@@ -240,11 +240,16 @@ def main():
         sys.exit(f"Upload failed: {e}")
 
     # --- Video is live; nothing below should abort the run ---
+    def refresh_index():
+        from generate_lecture_index import generate_for_course
+        generate_for_course(course, youtube=youtube, push=True)
+
     for label, fn in (
         ("playlist", lambda: ow.add_to_playlist(
             youtube, ow.find_or_create_playlist(youtube, playlist_title), video_id)),
         ("thumbnail", lambda: ow.upload_thumbnail(youtube, video_id, thumbnail)),
         ("captions", lambda: ow.upload_captions(youtube, video_id, srt_path)),
+        ("lecture index", refresh_index),
     ):
         try:
             fn()
