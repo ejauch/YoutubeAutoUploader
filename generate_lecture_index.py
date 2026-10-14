@@ -385,7 +385,9 @@ def _format_date(iso):
     if not iso:
         return ""
     try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%b %-d")
+        return (datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                .astimezone()
+                .strftime("%b %-d"))
     except ValueError:
         return ""
 
